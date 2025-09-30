@@ -1,5 +1,6 @@
 import os
 import logging
+import asyncio
 from flask import Flask, request
 
 from telegram import Update
@@ -18,7 +19,8 @@ from google.genai.errors import APIError
 # Logging configuration
 # ----------------------------
 logging.basicConfig(
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    level=logging.INFO
 )
 logger = logging.getLogger(__name__)
 
@@ -136,20 +138,24 @@ def webhook():
     return {"status": "ok"}
 
 # ----------------------------
-# Startup: set webhook explicitly
+# Startup: explicitly set webhook
 # ----------------------------
-async def set_webhook(app: Application):
+async def set_webhook():
     if not WEBHOOK_URL:
         logger.error("WEBHOOK_URL is not set. Please configure it in Render.")
         return
-    await app.bot.set_webhook(url=WEBHOOK_URL, drop_pending_updates=True)
+    await application.bot.set_webhook(url=WEBHOOK_URL, drop_pending_updates=True)
     logger.info(f"Webhook set to {WEBHOOK_URL}")
-
-application.post_init = set_webhook
 
 # ----------------------------
 # Main entrypoint
 # ----------------------------
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
+    # Ensure application is initialized and webhook is set before Flask starts
+    async def init_app():
+        await application.initialize()
+        await set_webhook()
+
+    asyncio.run(init_app())
     flask_app.run(host="0.0.0.0", port=port)
