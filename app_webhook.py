@@ -25,14 +25,12 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # ----------------------------
-# Config / Environment Variables
+# Environment Variables / Config
 # ----------------------------
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+WEBHOOK_URL = os.getenv("WEBHOOK_URL")  # e.g., https://<your-service>.onrender.com/webhook
 CHAT_SESSION_KEY = "gemini_chat_session"
-
-# Important: Set this to your deployed Render URL + /webhook
-WEBHOOK_URL = os.getenv("WEBHOOK_URL")
 
 GEMINI_MODEL = "gemini-2.0-flash-lite"
 SYSTEM_PROMPT = (
@@ -68,7 +66,7 @@ def get_or_create_chat(context: ContextTypes.DEFAULT_TYPE, user_id: int):
     return context.user_data[CHAT_SESSION_KEY]
 
 # ----------------------------
-# Telegram Bot Handlers
+# Telegram Handlers
 # ----------------------------
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_name = update.effective_user.first_name
@@ -118,7 +116,7 @@ application.add_handler(CommandHandler("new_chat", new_chat))
 application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
 # ----------------------------
-# Flask server for webhook & health
+# Flask App for Render
 # ----------------------------
 flask_app = Flask(__name__)
 
@@ -132,30 +130,36 @@ def health():
 
 @flask_app.route("/webhook", methods=["POST"])
 def webhook():
-    """Handle Telegram updates via webhook."""
+    """Handle incoming Telegram updates from webhook."""
     update = Update.de_json(request.get_json(force=True), application.bot)
     application.update_queue.put_nowait(update)
     return {"status": "ok"}
 
 # ----------------------------
-# Startup: explicitly set webhook
+# Start the bot in webhook mode
 # ----------------------------
-async def set_webhook():
+async def start_webhook():
     if not WEBHOOK_URL:
         logger.error("WEBHOOK_URL is not set. Please configure it in Render.")
         return
+
+    await application.initialize()
     await application.bot.set_webhook(url=WEBHOOK_URL, drop_pending_updates=True)
     logger.info(f"Webhook set to {WEBHOOK_URL}")
 
+    # Start the background task to process updates
+    await application.start()
+    logger.info("Telegram bot application started in webhook mode.")
+
 # ----------------------------
-# Main entrypoint
+# Entrypoint
 # ----------------------------
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
-    # Ensure application is initialized and webhook is set before Flask starts
-    async def init_app():
-        await application.initialize()
-        await set_webhook()
 
-    asyncio.run(init_app())
+    # Start Telegram bot in background asyncio task
+    loop = asyncio.get_event_loop()
+    loop.create_task(start_webhook())
+
+    # Start Flask server
     flask_app.run(host="0.0.0.0", port=port)
